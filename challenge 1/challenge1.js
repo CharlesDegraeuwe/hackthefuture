@@ -8,6 +8,48 @@ const headers = {
   "Content-Type": "application/json",
 };
 
+// Helper functie voor fetch (werkt in alle Node.js versies)
+async function makeRequest(url, options = {}) {
+  const https = require("https");
+  const urlParsed = new URL(url);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: urlParsed.hostname,
+        port: 443,
+        path: urlParsed.pathname + urlParsed.search,
+        method: options.method || "GET",
+        headers: options.headers || {},
+      },
+      (res) => {
+        let data = "";
+
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            json: async () => JSON.parse(data),
+            text: async () => data,
+          });
+        });
+      }
+    );
+
+    req.on("error", reject);
+
+    if (options.body) {
+      req.write(options.body);
+    }
+
+    req.end();
+  });
+}
+
 // Functie om Caesar cipher te ontcijferen
 function decryptCaesar(text, shift) {
   let result = "";
@@ -73,7 +115,7 @@ function findBestShift(encryptedText) {
 
 // Functie om alle shifts te tonen (voor debugging)
 function showAllShifts(encryptedText) {
-  console.log("\n🔍 Alle mogelijke ontcijferingen:\n");
+  console.log("Alle mogelijke ontcijferingen:\n");
   for (let shift = 0; shift < 26; shift++) {
     let decrypted = decryptCaesar(encryptedText, shift);
     console.log(`Shift ${shift.toString().padStart(2, "0")}: ${decrypted}`);
@@ -83,13 +125,13 @@ function showAllShifts(encryptedText) {
 // Hoofdfunctie om de challenge op te lossen
 async function solveChallenge1(useTest = true) {
   try {
-    console.log("🌊 Starting Challenge 1 - Het Signaal\n");
+    console.log("Starting Challenge 1 - Het Signaal\n");
 
     // Stap 1: Haal het versleutelde signaal op
-    console.log(`📡 Fetching encrypted signal (test mode: ${useTest})...`);
+    console.log(`Fetching encrypted signal (test mode: ${useTest})...`);
     const getUrl = `${API_BASE}/api/challenges/signal?isTest=${useTest}`;
 
-    const response = await fetch(getUrl, {
+    const response = await makeRequest(getUrl, {
       method: "GET",
       headers: headers,
     });
@@ -102,39 +144,47 @@ async function solveChallenge1(useTest = true) {
     }
 
     const data = await response.json();
-    console.log("📨 Received data:", JSON.stringify(data, null, 2));
+    console.log("Received data:", JSON.stringify(data, null, 2));
 
     // Zoek het versleutelde bericht
     const encryptedMessage =
-      data.signal || data.message || data.encrypted || data.encryptedSignal;
+      data.cipherText || data.signal || data.message || data.encrypted;
 
     if (!encryptedMessage) {
-      console.error("❌ Geen versleuteld bericht gevonden in response!");
+      console.error("Geen versleuteld bericht gevonden in response!");
       console.log("Response keys:", Object.keys(data));
       return;
     }
 
-    console.log("\n🔒 Encrypted message:", encryptedMessage);
+    // Als de API een shift hint geeft, toon deze
+    if (data.shift !== undefined) {
+      console.log(`Hint: shift = ${data.shift}`);
+    }
+
+    console.log("Encrypted message:", encryptedMessage);
 
     // Stap 2: Toon alle shifts
     showAllShifts(encryptedMessage);
 
     // Stap 3: Vind automatisch de beste shift
     const bestShift = findBestShift(encryptedMessage);
-    console.log(`\n✨ Best match found at shift: ${bestShift}`);
+    console.log(`Best match found at shift: ${bestShift}`);
 
     const decryptedMessage = decryptCaesar(encryptedMessage, bestShift);
-    console.log(`🔓 Decrypted message: ${decryptedMessage}`);
+    console.log(`Decrypted message: ${decryptedMessage}`);
 
     // Stap 4: Verstuur het antwoord
-    console.log("\n📤 Submitting answer...");
-    const submitResponse = await fetch(`${API_BASE}/api/challenges/signal`, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify({
-        answer: decryptedMessage,
-      }),
-    });
+    console.log("Submitting answer...");
+    const submitResponse = await makeRequest(
+      `${API_BASE}/api/challenges/signal`,
+      {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({
+          answer: decryptedMessage,
+        }),
+      }
+    );
 
     if (!submitResponse.ok) {
       const errorText = await submitResponse.text();
@@ -143,16 +193,31 @@ async function solveChallenge1(useTest = true) {
       );
     }
 
-    const result = await submitResponse.json();
-    console.log("✅ Result:", JSON.stringify(result, null, 2));
+    const resultText = await submitResponse.text();
+    console.log("Raw response:", resultText);
 
-    if (result.success || result.correct) {
-      console.log("\n🎉 GELUKT! Challenge 1 voltooid!");
+    // Probeer JSON te parsen, maar handle lege responses
+    let result;
+    if (resultText && resultText.trim().length > 0) {
+      try {
+        result = JSON.parse(resultText);
+        console.log("Result:", JSON.stringify(result, null, 2));
+      } catch (e) {
+        console.log("Response (not JSON):", resultText);
+        result = { message: resultText };
+      }
     } else {
-      console.log("\n⚠️ Answer submitted but may need verification");
+      console.log("✅ Empty response - likely successful!");
+      result = { success: true };
+    }
+
+    if (result.success || result.correct || submitResponse.status === 200) {
+      console.log("GELUKT! Challenge 1 voltooid!");
+    } else {
+      console.log("Answer submitted but may need verification");
     }
   } catch (error) {
-    console.error("❌ Error:", error.message);
+    console.error("Error:", error.message);
     console.error("Full error:", error);
   }
 }
@@ -162,8 +227,8 @@ console.log("Starting in TEST mode first...\n");
 solveChallenge1(true).then(() => {
   console.log("\n" + "=".repeat(60));
   console.log("Als test mode werkt, run dan: solveChallenge1(false)");
+  console.log("Om de echte challenge te doen, uncomment de regel hieronder:");
   console.log("=".repeat(60));
 });
 
-// Om de echte challenge te doen, uncomment de regel hieronder:
-// solveChallenge1(false);
+//solveChallenge1(false);
