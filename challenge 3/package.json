@@ -1,0 +1,19 @@
+{
+  "name": "challenge-3",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "javascript-astar": "^0.4.1",
+    "ngraph.graph": "^20.1.0",
+    "ngraph.path": "^1.5.0",
+    "pathfinding": "^0.4.18"
+  }
+}
